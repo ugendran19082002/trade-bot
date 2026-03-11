@@ -1,7 +1,7 @@
 {
     "_comment": "Strategy tuning parameters — change values here, no code edits needed",
     "TIME_START_MIN": 555,
-    "TIME_END_MIN": 900,
+    "TIME_END_MIN": 895,
     "DAILY_EMA_PERIOD": 20,
     "GAP_THRESHOLD": 150,
     "ADX_MIN": 20,

@@ -226,7 +226,7 @@ export function calculateOptionLevels({
 
     // Target side: delta increases as option goes further in the money
     const avgDeltaTGT = (d + (d + g * indexTargetMove)) / 2;
-    const optionTargetMove = indexTargetMove * avgDeltaTGT;
+    const optionTargetMove = indexTargetMove * (avgDeltaTGT - 0.5);
 
     // ✅ ABSOLUTE PRICE LEVELS — not raw move distances
     // These are sent directly to the broker as trigger/limit prices.

@@ -203,7 +203,7 @@ export async function entryEngine(jwt, fromdate, todate, futureToken) {
         r = generateSignal(index1m, index5m, index15m, future1m, data1D, _liveSessionState);
     }
 
-    logger.info(`📍 LTP → Index:${r.indexLTP}  Fut:${r.futureLTP} Bias:${r.dailyBias}  Signal:${r.signal}`);
+    logger.info(`📍 LTP → Index:${r.indexLTP}  Fut:${r.futureLTP} Bias:${r.dailyBias}  📍Signal:${r.signal} Reason:${r?.reason}`);
 
 
     if (r.signal === "NO_TRADE") {
@@ -234,8 +234,15 @@ export async function entryEngine(jwt, fromdate, todate, futureToken) {
     let optionSL = null, optionTarget = null;
 
     try {
-        const atm = await getATMOptionTokens(process.env.INDEX_SYMBOL || "SENSEX", entryPrice, jwt, new Date());
-
+        const atm = await getATMOptionTokens(
+            process.env.INDEX_SYMBOL || "SENSEX",
+            entryPrice,
+            jwt,
+            undefined,   // targetPremium → uses process.env.CLOSEST_PREMIUM
+            undefined,   // strikeStep   → defaults to 100
+            undefined,   // strikeRange  → defaults to 20
+            isPE ? "PE" : "CE"
+        );
         if (atm) {
             atmStrike = atm.strike;
             optionExpiry = new Date(atm.expiry).toDateString();

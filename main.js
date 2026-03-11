@@ -214,18 +214,18 @@ async function main() {
             }
 
 
-            // if (istMins < (9 * 60) || istMins > (15 * 60 + 40)) {
-            //     logger.info(`😴 Market closed (IST ${istNow.getHours()}:${String(istNow.getMinutes()).padStart(2, "0")}) — sleeping 60s`);
-            //     await sleep(60_000);
-            //     continue;
-            // }
+            if (istMins < (9 * 60) || istMins > (15 * 60 + 40)) {
+                logger.info(`😴 Market closed (IST ${istNow.getHours()}:${String(istNow.getMinutes()).padStart(2, "0")}) — sleeping 60s`);
+                await sleep(60_000);
+                continue;
+            }
             // ✅ Use formatISTDateTime() — always returns real IST time.
             // The old formatCurrentDateTime() used getHours() which is LOCAL time
             // (UTC on most servers), making todate 5:30h behind — API returns no data.
             const liveFrom = getTodayFromDate(29);
             var liveTo = formatISTDateTime();
             // var liveTo = process.env.LIVE_TO_DATE || formatCurrentDateTime();
-            // var liveTo = "2026-03-09 09:17";
+            // var liveTo = "2026-03-11 09:50";
             const futureToken = await getFutureToken(process.env.INDEX_SYMBOL || "SENSEX", liveTo);
 
             const windowKey = `${liveFrom}_${liveTo}`;

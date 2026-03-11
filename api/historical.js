@@ -57,14 +57,22 @@ async function fetchAndMergeCandles({ historicalUrl, intradayUrl, todate, label 
     for (const c of historical) map.set(c[0], c);
     for (const c of intraday) map.set(c[0], c);
 
-    // Sort oldest → newest, then filter up to todate boundary
-    const endBoundaryTs = todate ? new Date(todate).getTime() : Date.now();
+    // ── IST-aware boundary ───────────────────────────────────────────────
+    // "2026-03-11 09:55" is IST — must append +05:30 before parsing,
+    // otherwise JS treats it as UTC and boundary shifts by 5h30m
+    let endBoundaryTs;
+    if (todate) {
+        const istString = todate.trim().replace(" ", "T") + ":00+05:30";
+        endBoundaryTs = new Date(istString).getTime();
+        logger.info(`🕐 Boundary (IST): ${todate} → UTC ms: ${endBoundaryTs} → ${new Date(endBoundaryTs).toISOString()}`);
+    } else {
+        endBoundaryTs = Date.now();
+    }
 
     return Array.from(map.values())
         .sort((a, b) => Date.parse(a[0]) - Date.parse(b[0]))
         .filter(c => new Date(c[0]).getTime() <= endBoundaryTs);
 }
-
 // ─────────────────────────────────────────
 // INDEX HISTORICAL CANDLES
 // jwt / exchange kept for backwards compatibility — unused by Upstox
@@ -76,7 +84,7 @@ export async function getHistorical(jwt, exchange, token, interval, fromdate, to
     const toDate = (todate ?? "").slice(0, 10) || today;
     const fromDate = (fromdate ?? "").slice(0, 10) || toDate;
 
-    logger.info(`📊 Upstox Historical | ${token} | ${interval} | ${fromDate} → ${toDate}`);
+    logger.info(`📊 Upstox Historical | ${token} | ${interval} | ${fromDate} → ${todate}`);
 
     try {
         let candles;
@@ -113,6 +121,13 @@ export async function getHistorical(jwt, exchange, token, interval, fromdate, to
             });
         }
 
+        // Staleness check (live mode only — skip when replaying via todate)
+        const lastCandle = candles[candles.length - 1];
+        const endBoundaryTs = todate ? new Date(todate).getTime() : Date.now();
+        const diffMin = (endBoundaryTs - Date.parse(lastCandle[0])) / 60000;
+
+        logger.info(`🕒 Historical last candle: ${lastCandle[0]} | Delay: ${diffMin.toFixed(2)}m`);
+
         if (!candles.length) {
             logger.warn(`⚠ No candles after filtering by toDate: ${todate}`);
             return [];
@@ -146,7 +161,7 @@ export async function getFuture(token, fromdate, todate, interval = 2, retries =
     const toDate = (todate ?? "").slice(0, 10) || today;
     const fromDate = (fromdate ?? "").slice(0, 10) || toDate;
 
-    logger.info(`📊 Upstox Future | ${INSTRUMENT_KEY} | ${interval}m | ${fromDate} → ${toDate}`);
+    logger.info(`📊 Upstox Future | ${INSTRUMENT_KEY} | ${interval}m | ${fromdate} → ${todate}`);
 
     try {
         const candles = await fetchAndMergeCandles({

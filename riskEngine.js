@@ -12,7 +12,7 @@ import { logger } from "./logger.js";
 
 const STATE_FILE = path.resolve("risk_state.json");
 
-const MAX_TRADES = parseInt(process.env.MAX_TRADES_PER_DAY ?? "5");
+const MAX_TRADES = parseInt(process.env.MAX_TRADES_PER_DAY ?? "500");
 const MAX_LOSS_PTS = parseFloat(process.env.MAX_DAILY_LOSS_PTS ?? "2000");
 const MAX_DD_PCT = parseFloat(process.env.MAX_DRAWDOWN_PCT ?? "3") / 100;
 
