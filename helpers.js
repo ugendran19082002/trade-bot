@@ -209,35 +209,71 @@ export function calculateOptionLevels({
     indexSL,
     indexTarget,
     optionLTP,
-    delta = parseFloat(process.env.DELTA_VALUE ?? 0.5),
+    delta = parseFloat(process.env.OPTION_DELTA ?? 0.5),
     gamma = parseFloat(process.env.GAMMA_VALUE ?? 0.001),
 }) {
-    // Re-parse: guard against caller passing raw env string
-    const d = parseFloat(delta);
-    const g = parseFloat(gamma);
+    const d = Math.abs(parseFloat(delta));
+    const g = Math.abs(parseFloat(gamma));
 
-    // Index move distances
-    const indexSLMove = Math.abs(indexSL - indexEntry);
-    const indexTargetMove = Math.abs(indexEntry - indexTarget);
+    // ── Index move distances (always positive) ───────────────────────────
+    const indexSLMove     = Math.abs(indexSL     - indexEntry);
+    const indexTargetMove = Math.abs(indexTarget - indexEntry);
 
-    // SL side: delta increases as index moves against position
-    const avgDeltaSL = (d + (d + g * indexSLMove)) / 2;
-    const optionSLMove = indexSLMove * (avgDeltaSL + 0.15);
+    // ── SL side ──────────────────────────────────────────────────────────
+    const avgDeltaSL      = d + (g * indexSLMove  / 2);
+    const optionSLMove    = indexSLMove * avgDeltaSL;
 
-    // Target side: delta increases as option goes further in the money
-    const avgDeltaTGT = (d + (d + g * indexTargetMove)) / 2;
-    const optionTargetMove = indexTargetMove * (avgDeltaTGT - 0.5);
+    // ── Target side ───────────────────────────────────────────────────────
+    const avgDeltaTGT     = d + (g * indexTargetMove / 2);
+    const optionTargetMove = indexTargetMove * avgDeltaTGT;
 
-    // ✅ ABSOLUTE PRICE LEVELS — not raw move distances
-    // These are sent directly to the broker as trigger/limit prices.
-    // optionSL     = what the option will be worth when index hits SL
-    // optionTarget = what the option will be worth when index hits target
+    // ── SL buffer — based on optionSLMove (how far SL is from LTP) ───────
+    // The deeper the SL move, the more buffer we add (protect against noise)
+    //
+    //  optionSLMove < 50  → add 10 pts
+    //  optionSLMove < 70  → add  5 pts
+    //  else               → add  0 pts
+    function getSLBuffer(move) {
+        if (move < 50) return 10;   // very tight SL → add 10 buffer
+        if (move < 70) return 5;    // moderate SL   → add  5 buffer
+        return 0;                   // wide SL       → no buffer needed
+    }
+
+    // ── Target buffer — based on optionTargetMove (how far TGT is) ───────
+    // The bigger the target move, the more we trim (lock in conservative TGT)
+    //
+    //  optionTargetMove >= 300 → subtract 30 pts
+    //  optionTargetMove >= 250 → subtract 20 pts
+    //  optionTargetMove >= 200 → subtract 10 pts
+    //  optionTargetMove >= 150 → subtract  5 pts
+    //  else                    → subtract  0 pts
+    function getTGTBuffer(move) {
+        if (move >= 300) return 30;
+        if (move >= 250) return 20;
+        if (move >= 200) return 10;
+        if (move >= 150) return 5;
+        return 0;
+    }
+
+    const slBuffer  = getSLBuffer(optionSLMove);
+    const tgtBuffer = getTGTBuffer(optionTargetMove);
+
+    // ── Absolute option price levels ──────────────────────────────────────
+    // SL     = optionLTP - SLMove  - slBuffer   (wider  → less premature exit)
+    // Target = optionLTP + TGTMove - tgtBuffer  (tighter → easier to hit)
+    const optionSL     = parseFloat((optionLTP - optionSLMove     - slBuffer).toFixed(2));
+    const optionTarget = parseFloat((optionLTP + optionTargetMove - tgtBuffer).toFixed(2));
+
+    // ── Sanity guards ─────────────────────────────────────────────────────
+    const safeOptionSL     = Math.max(0.05, optionSL);
+    const safeOptionTarget = Math.max(optionLTP + 0.05, optionTarget);
+
     return {
-        optionSL: parseFloat((optionLTP - optionSLMove).toFixed(2)),
-        optionTarget: parseFloat((optionLTP + optionTargetMove).toFixed(2))
+        optionSL    : parseFloat(safeOptionSL.toFixed(2)),
+        optionTarget: parseFloat(safeOptionTarget.toFixed(2)),
     };
 }
-// ─────────────────────────────────────────
+
 // ATOMIC .ENV WRITER  (BUG 7 FIX)
 // Multiple files (main.js, tokens.js, kotak_login.js) all write .env
 // simultaneously — race condition corrupts file. This serializes writes.

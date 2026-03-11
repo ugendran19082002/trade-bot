@@ -108,7 +108,7 @@ export async function getATMOptionTokens(
     targetPremium = process.env.CLOSEST_PREMIUM,
     strikeStep = 100,
     strikeRange = 20,
-    signal = ""   // "CE" or "PE"
+    signal,  // "CE" or "PE"
 ) {
 
     if (!signal || (signal !== "CE" && signal !== "PE")) {
@@ -203,31 +203,31 @@ export async function getATMOptionTokens(
     // ════════════════════════════════════════════════════════════════════
     if (targetDelta > 0) {
         logger.info(`🎯 MODE: Delta-based | targetDelta: ${targetDelta}`);
-function deltaToOffset(delta) {
+       function deltaToOffset(delta) {
     // OTM — low delta (positive offset)
-    if (delta < 0.07) return 10;   // deep OTM  (< 0.07)
-    if (delta < 0.17) return 9;    // 9 OTM     (0.07–0.16)
-    if (delta < 0.27) return 8;    // 8 OTM     (0.17–0.26)
-    if (delta < 0.37) return 7;    // 7 OTM     (0.27–0.36)
-    if (delta < 0.47) return 6;    // 6 OTM     (0.37–0.46)
-    if (delta < 0.57) return 5;    // 5 OTM     (0.47–0.56)
-    if (delta < 0.67) return 4;    // 4 OTM     (0.57–0.66)
-    if (delta < 0.77) return 3;    // 3 OTM     (0.67–0.76)
-    if (delta < 0.87) return 2;    // 2 OTM     (0.77–0.86)
-    if (delta < 0.97) return 1;    // 1 OTM     (0.87–0.96)
+    if (delta < 0.10) return 10;   // deep OTM  (< 0.10)
+    if (delta < 0.14) return 9;    // 9 OTM     (0.10–0.13)
+    if (delta < 0.18) return 8;    // 8 OTM     (0.14–0.17)
+    if (delta < 0.22) return 7;    // 7 OTM     (0.18–0.21)
+    if (delta < 0.26) return 6;    // 6 OTM     (0.22–0.25)
+    if (delta < 0.30) return 5;    // 5 OTM     (0.26–0.29)
+    if (delta < 0.34) return 4;    // 4 OTM     (0.30–0.33)
+    if (delta < 0.38) return 3;    // 3 OTM     (0.34–0.37)
+    if (delta < 0.42) return 2;    // 2 OTM     (0.38–0.41)
+    if (delta < 0.48) return 1;    // 1 OTM     (0.42–0.47)
     // ATM
-    if (delta < 1.07) return 0;    // ATM       (0.97–1.06) ✅
+    if (delta <= 0.55) return 0;   // ATM       (0.48–0.55) ✅
     // ITM — high delta (negative offset)
-    if (delta < 1.17) return -1;   // 1 ITM
-    if (delta < 1.27) return -2;   // 2 ITM
-    if (delta < 1.37) return -3;   // 3 ITM
-    if (delta < 1.47) return -4;   // 4 ITM
-    if (delta < 1.57) return -5;   // 5 ITM
-    if (delta < 1.67) return -6;   // 6 ITM
-    if (delta < 1.77) return -7;   // 7 ITM
-    if (delta < 1.87) return -8;   // 8 ITM
-    if (delta < 1.97) return -9;   // 9 ITM
-    return -10;                     // 10 ITM    (1.97+)
+    if (delta < 0.59) return -1;   // 1 ITM     (0.56–0.58)
+    if (delta < 0.63) return -2;   // 2 ITM     (0.59–0.62)
+    if (delta < 0.67) return -3;   // 3 ITM     (0.63–0.66)
+    if (delta < 0.71) return -4;   // 4 ITM     (0.67–0.70)
+    if (delta < 0.75) return -5;   // 5 ITM     (0.71–0.74)
+    if (delta < 0.79) return -6;   // 6 ITM     (0.75–0.78)
+    if (delta < 0.83) return -7;   // 7 ITM     (0.79–0.82)
+    if (delta < 0.87) return -8;   // 8 ITM     (0.83–0.86)
+    if (delta < 0.91) return -9;   // 9 ITM     (0.87–0.90)
+    return -10;                     // deep ITM  (0.91–0.99)
 }
         const offset = deltaToOffset(targetDelta);
         const label = offset === 0 ? "ATM" : offset > 0 ? `${offset} OTM` : `${Math.abs(offset)} ITM`;
@@ -235,7 +235,7 @@ function deltaToOffset(delta) {
         // CE: OTM = higher strike (+), ITM = lower strike (-)
         // PE: OTM = lower strike  (-), ITM = higher strike (+)
         // Formula is same — offset sign handles direction automatically
-        const targetStrike = signal === "CE"
+        const targetStrike = signal == "CE"
             ? atmStrike + offset * strikeStep
             : atmStrike - offset * strikeStep;
 
