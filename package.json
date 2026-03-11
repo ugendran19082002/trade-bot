@@ -1,0 +1,36 @@
+{
+  "name": "nodetrading",
+  "version": "1.0.0",
+  "main": "main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "nodemon main.js",
+    "dev": "nodemon main.js"
+  },
+  "type": "module",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "axios": "^1.13.6",
+    "bullmq": "^5.70.1",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "fs-extra": "^11.3.4",
+    "ioredis": "^5.10.0",
+    "kotak-neo-nodejs-sdk": "^1.0.15",
+    "otplib": "^12.0.1",
+    "playwright": "^1.58.2",
+    "public-ip": "^8.0.0",
+    "qs": "^6.15.0",
+    "smartapi-javascript": "^1.0.27",
+    "speakeasy": "^2.0.0",
+    "totp-generator": "^2.0.1",
+    "winston": "^3.19.0",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}
