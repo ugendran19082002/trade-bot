@@ -216,15 +216,15 @@ export function calculateOptionLevels({
     const g = Math.abs(parseFloat(gamma));
 
     // ── Index move distances (always positive) ───────────────────────────
-    const indexSLMove     = Math.abs(indexSL     - indexEntry);
+    const indexSLMove = Math.abs(indexSL - indexEntry);
     const indexTargetMove = Math.abs(indexTarget - indexEntry);
 
     // ── SL side ──────────────────────────────────────────────────────────
-    const avgDeltaSL      = d + (g * indexSLMove  / 2);
-    const optionSLMove    = indexSLMove * avgDeltaSL;
+    const avgDeltaSL = d + (g * indexSLMove / 2);
+    const optionSLMove = indexSLMove * avgDeltaSL;
 
     // ── Target side ───────────────────────────────────────────────────────
-    const avgDeltaTGT     = d + (g * indexTargetMove / 2);
+    const avgDeltaTGT = d + (g * indexTargetMove / 2);
     const optionTargetMove = indexTargetMove * avgDeltaTGT;
 
     // ── SL buffer — based on optionSLMove (how far SL is from LTP) ───────
@@ -255,21 +255,21 @@ export function calculateOptionLevels({
         return 0;
     }
 
-    const slBuffer  = getSLBuffer(optionSLMove);
+    const slBuffer = getSLBuffer(optionSLMove);
     const tgtBuffer = getTGTBuffer(optionTargetMove);
 
     // ── Absolute option price levels ──────────────────────────────────────
     // SL     = optionLTP - SLMove  - slBuffer   (wider  → less premature exit)
     // Target = optionLTP + TGTMove - tgtBuffer  (tighter → easier to hit)
-    const optionSL     = parseFloat((optionLTP - optionSLMove     - slBuffer).toFixed(2));
+    const optionSL = parseFloat((optionLTP - optionSLMove - slBuffer).toFixed(2));
     const optionTarget = parseFloat((optionLTP + optionTargetMove - tgtBuffer).toFixed(2));
 
     // ── Sanity guards ─────────────────────────────────────────────────────
-    const safeOptionSL     = Math.max(0.05, optionSL);
+    const safeOptionSL = Math.max(0.05, optionSL);
     const safeOptionTarget = Math.max(optionLTP + 0.05, optionTarget);
 
     return {
-        optionSL    : parseFloat(safeOptionSL.toFixed(2)),
+        optionSL: parseFloat(safeOptionSL.toFixed(2)),
         optionTarget: parseFloat(safeOptionTarget.toFixed(2)),
     };
 }
@@ -298,8 +298,16 @@ async function _flushEnvQueue() {
         if (_envWriteQueue.length) await _flushEnvQueue();
     }
 }
-
 export function updateEnvKey(key, value) {
-    _envWriteQueue.push({ key, value });
-    _flushEnvQueue().catch(() => { });
+    process.env[key] = value; // ✅ sync runtime env
+
+    const envFile = ".env";
+    let env = fs.readFileSync(envFile, "utf8");
+    const regex = new RegExp(`^${key}=.*`, "m");
+    if (env.match(regex)) {
+        env = env.replace(regex, `${key}=${value}`);
+    } else {
+        env += `\n${key}=${value}`;
+    }
+    fs.writeFileSync(envFile, env);
 }

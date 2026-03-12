@@ -22,6 +22,7 @@
     "kotak-neo-nodejs-sdk": "^1.0.15",
     "otplib": "^12.0.1",
     "playwright": "^1.58.2",
+    "protobufjs": "^8.0.0",
     "public-ip": "^8.0.0",
     "qs": "^6.15.0",
     "smartapi-javascript": "^1.0.27",

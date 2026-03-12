@@ -1,6 +1,3 @@
-import dotenv from "dotenv";
-dotenv.config();
-
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 
@@ -61,6 +58,7 @@ const getBaseDiag = (indexLTP = "0.00", futureLTP = "0.00") => ({
     tgtPrice: 0,   // ✅ FIX #6 — absolute target price level
     bigCandle: false,
     strongBody: false,
+  
     breakUp: false,
     breakDown: false,
 
@@ -78,13 +76,10 @@ const getBaseDiag = (indexLTP = "0.00", futureLTP = "0.00") => ({
     belowVWAP: false,
     trendAligned: false,
     breakoutStrong: false,
-    timeAllowed: false,
-    vwapDown: null,
-    vwapUp: null
+    timeAllowed: false
 });
 
-export function generateSignal(index1m, index5m, index15m, future1m, data1D, sessionState = {}
-) {
+export function generateSignal(index1m, index5m, index15m, future1m, data1D) {
 
     // ─────────────────────────────────────────
     // GUARD — Insufficient data
@@ -122,9 +117,8 @@ export function generateSignal(index1m, index5m, index15m, future1m, data1D, ses
     }
 
     // ─────────────────────────────────────────
-    // PRO FILTER #1 — TIME FILTER (IST 9:18–15:00)
-    // Avoid pre-open noise + end-of-day closing traps
-    // Configurable via CFG.TIME_START_MIN (558) and CFG.TIME_END_MIN (900)
+    // PRO FILTER #1 — TIME FILTER (IST 9:20–14:45)
+    // Avoid opening chaos + closing traps
     // ─────────────────────────────────────────
     const istStr = new Date(last1m.time).toLocaleString("en-US", { timeZone: "Asia/Kolkata" });
     const istDate = new Date(istStr);
@@ -136,6 +130,7 @@ export function generateSignal(index1m, index5m, index15m, future1m, data1D, ses
     // INITIAL DIAGNOSTIC
     // ─────────────────────────────────────────
     const diag = getBaseDiag(last1m.close.toFixed(2), lastFuture.close.toFixed(2));
+    diag.spread = (lastFuture.close - last1m.close).toFixed(2);
     diag.warnings = [];
 
     diag.timeAllowed = minuteOfDay >= TIME_START && minuteOfDay <= TIME_END;
@@ -162,7 +157,6 @@ export function generateSignal(index1m, index5m, index15m, future1m, data1D, ses
 
     const lastDailyEMA = dailyEMA[dailyEMA.length - 1];
 
-
     // Guard: EMA could be null if data < period (shouldn't happen given check above)
     if (lastDailyEMA === null) {
         diag.warnings.push("DAILY_EMA_NULL");
@@ -187,53 +181,6 @@ export function generateSignal(index1m, index5m, index15m, future1m, data1D, ses
 
     if (dailyBreakUp && diag.emaAbove) diag.dailyBias = "BULLISH";
     if (dailyBreakDown && !diag.emaAbove) diag.dailyBias = "BEARISH";
-
-    // ─────────────────────────────────────────
-    // PRO FILTER #2 — VWAP (Institutional Bias)
-    // CE → price > VWAP | PE → price < VWAP
-    // ─────────────────────────────────────────
-    const vwapArr = calculateVWAP(future1m);
-    const currentVWAP = vwapArr[vwapArr.length - 1];
-    diag.vwap = currentVWAP !== null ? parseFloat(currentVWAP.toFixed(2)) : null;
-    const VWAP_TOLERANCE = 20;
-    diag.aboveVWAP = currentVWAP !== null && lastFuture.close > currentVWAP - VWAP_TOLERANCE;
-    diag.belowVWAP = currentVWAP !== null && lastFuture.close < currentVWAP + VWAP_TOLERANCE;
-
-    // ─────────────────────────────────────────
-    // 5M TREND + INDICATORS
-    // FIX #3, #4, #5 — Pass shared warnings[] into all indicator functions
-    // ─────────────────────────────────────────
-    const ema5m = calculateEMA(index5m);
-    diag.currentEMA = ema5m[ema5m.length - 1]?.toFixed(2) || "0.00";
-    diag.trendUp = last5m.close > (ema5m[ema5m.length - 1] ?? -Infinity);
-    diag.trendDown = last5m.close < (ema5m[ema5m.length - 1] ?? Infinity);
-
-    const atrArr = calculateATR(index5m, 14, diag.warnings);
-    const rawATR = atrArr[atrArr.length - 1];
-    const currentATR = rawATR; // Define for downstream logic
-
-    if (rawATR !== null) {
-        diag.currentATR = rawATR.toFixed(2);
-        diag.dynamicSL = parseFloat(Math.min(CFG.ATR_SL_CAP, rawATR * CFG.ATR_SL_MULTIPLIER).toFixed(2));
-        diag.dynamicTGT = parseFloat(Math.min(CFG.ATR_TGT_CAP, rawATR * CFG.ATR_TGT_MULTIPLIER).toFixed(2));
-    }
-
-    const adxArr = calculateADX(index5m, 14, diag.warnings);
-    const rawADX = adxArr[adxArr.length - 1];
-    const currentADX = rawADX; // Define for downstream logic
-
-    if (rawADX !== null) {
-        diag.currentADX = rawADX.toFixed(1);
-        diag.trendStrong = rawADX >= CFG.ADX_MIN;
-    }
-
-    const rsiArr = calculateRSI(index5m, 14, diag.warnings);
-    const currentRSI = rsiArr[rsiArr.length - 1];
-    if (currentRSI !== null) {
-        diag.currentRSI = currentRSI.toFixed(1);
-        diag.rsiBullish = currentRSI > CFG.RSI_BULL_MIN;
-        diag.rsiBearish = currentRSI < CFG.RSI_BEAR_MAX;
-    }
 
     // ─────────────────────────────────────────
     // GAP ANALYSIS
@@ -272,37 +219,81 @@ export function generateSignal(index1m, index5m, index15m, future1m, data1D, ses
 
 
     // ─────────────────────────────────────────
+    // PRO FILTER #2 — VWAP (Institutional Bias)
+    // CE → price > VWAP | PE → price < VWAP
+    // ─────────────────────────────────────────
+    const vwapArr = calculateVWAP(future1m);
+    const currentVWAP = vwapArr[vwapArr.length - 1];
+    diag.vwap = currentVWAP !== null ? parseFloat(currentVWAP.toFixed(2)) : null;
+    diag.aboveVWAP = currentVWAP !== null && lastFuture.close > currentVWAP;
+    diag.belowVWAP = currentVWAP !== null && lastFuture.close < currentVWAP;
+
+    // ─────────────────────────────────────────
+    // 5M TREND + INDICATORS
+    // FIX #3, #4, #5 — Pass shared warnings[] into all indicator functions
+    // ─────────────────────────────────────────
+    const ema5m = calculateEMA(index5m);
+    diag.currentEMA = ema5m[ema5m.length - 1]?.toFixed(2) || "0.00";
+    diag.trendUp = last5m.close > (ema5m[ema5m.length - 1] ?? -Infinity);
+    diag.trendDown = last5m.close < (ema5m[ema5m.length - 1] ?? Infinity);
+
+    const atrArr = calculateATR(index5m, 14, diag.warnings);
+    const rawATR = atrArr[atrArr.length - 1];
+
+    // ✅ FIX #3 — No hardcoded fallback; return NO_TRADE if ATR unavailable
+    if (rawATR === null) {
+        return {
+            signal: "NO_TRADE",
+            reason: "atr_unavailable",
+            ...diag
+        };
+    }
+
+    diag.currentATR = rawATR.toFixed(2);
+    const currentATR = rawATR;
+
+    diag.dynamicSL = parseFloat(Math.min(CFG.ATR_SL_CAP, currentATR * CFG.ATR_SL_MULTIPLIER).toFixed(2));
+    diag.dynamicTGT = parseFloat(Math.min(CFG.ATR_TGT_CAP, currentATR * CFG.ATR_TGT_MULTIPLIER).toFixed(2));
+
+    const adxArr = calculateADX(index5m, 14, diag.warnings);
+    const rawADX = adxArr[adxArr.length - 1];
+
+    // ✅ FIX #5 — null ADX means insufficient data → NO_TRADE
+    if (rawADX === null) {
+        return {
+            signal: "NO_TRADE",
+            reason: "insufficient_adx_data",
+            ...diag
+        };
+    }
+
+    diag.currentADX = rawADX.toFixed(1);
+    const currentADX = rawADX;
+    diag.trendStrong = currentADX >= CFG.ADX_MIN;
+
+    const rsiArr = calculateRSI(index5m, 14, diag.warnings);
+    const currentRSI = rsiArr[rsiArr.length - 1];
+    diag.currentRSI = currentRSI.toFixed(1);
+    diag.rsiBullish = currentRSI > CFG.RSI_BULL_MIN;
+    diag.rsiBearish = currentRSI < CFG.RSI_BEAR_MAX;
+
+    // ─────────────────────────────────────────
     // PRO FILTER #3 — ATR DEAD MARKET GUARD
     // Skip trades when volatility is too low
     // ─────────────────────────────────────────
-    if (rawATR === null) {
-        return { signal: "NO_TRADE", reason: "atr_unavailable", ...diag };
-    }
-
-    if (rawATR < CFG.ATR_MIN) {
+    if (currentATR < CFG.ATR_MIN) {
         return { signal: "NO_TRADE", reason: "low_volatility_atr", ...diag };
-    }
-
-    if (rawADX === null) {
-        return { signal: "NO_TRADE", reason: "insufficient_adx_data", ...diag };
     }
 
     // ─────────────────────────────────────────
     // 1M BREAK STRUCTURE
-    // Compares last closed 1m candle vs the one before it to detect micro-breakouts
     // ─────────────────────────────────────────
-    const prevCandles = index1m.slice(-2, -1);   // ✅ renamed: was misleadingly called last5
-    const prevHigh = Math.max(...prevCandles.map(c => c.high));  // ✅ renamed from max5High
-    const prevLow = Math.min(...prevCandles.map(c => c.low));   // ✅ renamed from min5Low
+    const last5 = index1m.slice(-5, -1);
+    const max5High = Math.max(...last5.map(c => c.high));
+    const min5Low = Math.min(...last5.map(c => c.low));
 
-    diag.breakUp = last1m.high > prevHigh;
-    diag.breakDown = last1m.low < prevLow;
-
-    const momentumUp = last1m.close > prev1m.high;
-    const momentumDown = last1m.close < prev1m.low;
-
-    const microPullbackUp = diag.trendUp && prev1m.close < prev1m.open && last1m.close > last1m.open;
-    const microPullbackDown = diag.trendDown && prev1m.close > prev1m.open && last1m.close < last1m.open;
+    diag.breakUp = last1m.close > max5High;
+    diag.breakDown = last1m.close < min5Low;
 
 
     // ─────────────────────────────────────────
@@ -319,6 +310,7 @@ export function generateSignal(index1m, index5m, index15m, future1m, data1D, ses
         (range > (prev1m.high - prev1m.low) * CFG.BIG_CANDLE_MULT) &&
         diag.strongBody;
 
+ 
 
     // ─────────────────────────────────────────
     // FIX #6 — Compute absolute SL and Target price levels per side
@@ -337,10 +329,10 @@ export function generateSignal(index1m, index5m, index15m, future1m, data1D, ses
     const prevFuture5m = (future5m && future5m.length > 1) ? future5m[future5m.length - 2] : null;
 
     if (!future5m || future5m.length < 2) {
-        diag.warnings.push("VOLUME_INSUFFICIENT");
+        diag.warnings.push("OI_INSUFFICIENT");
         return {
             signal: "NO_TRADE",
-            reason: "insufficient_volume_data",
+            reason: "insufficient_oi_data",
             ...diag
         };
     }
@@ -365,9 +357,8 @@ export function generateSignal(index1m, index5m, index15m, future1m, data1D, ses
     }
 
     // ── PRO FILTER #4 — MULTI-TF ALIGNMENT ──
-    // 5m trend direction + 15m structure must align with daily bias.
-    // NOTE: bullishStructure / bearishStructure (15m HH/HL, LH/LL) are embedded here.
-    // Trend setups downstream do NOT need to re-check them — trendAligned is the gate.
+    // 5m trend direction + 15m structure must align with daily bias
+    // Without this → false breakouts on wrong side
     diag.trendAligned =
         (diag.dailyBias === "BULLISH" && diag.trendUp && diag.bullishStructure) ||
         (diag.dailyBias === "BEARISH" && diag.trendDown && diag.bearishStructure);
@@ -376,317 +367,41 @@ export function generateSignal(index1m, index5m, index15m, future1m, data1D, ses
         return { signal: "NO_TRADE", reason: "multi_tf_misaligned", ...diag };
     }
 
+   
+
     // ── PRO FILTER #5 — BREAKOUT STRENGTH ───
     // Real breakout must have big candle + strong body + volume
     diag.breakoutStrong =
+        diag.bigCandle &&
         diag.strongBody &&
-        (diag.volConfirm || diag.bigCandle);
+        diag.volConfirm;
 
     // ── Priority 3: TREND CONTINUATION ──────
     // FIX #8 — Gap guard extended: if gap fills intraday, allow trend
     const gapDownFilled = diag.gapDown && last5m.close < prevDay.close;
     const gapUpFilled = diag.gapUp && last5m.close > prevDay.close;
 
-    const gapDownAllowed = diag.gapDown && currentADX > 25;
-    const gapUpAllowed = diag.gapUp && currentADX > 25;
-
-    const pullbackShort = diag.dailyBias === "BEARISH" && diag.trendDown && currentRSI < 50 && (last1m.high >= (ema5m[ema5m.length - 1] || 0));
-    const pullbackLong = diag.dailyBias === "BULLISH" && diag.trendUp && currentRSI > 50 && (last1m.low <= (ema5m[ema5m.length - 1] || Infinity));
-
-    const continuationShort = diag.trendStrong && currentRSI < 40;
-    const continuationLong = diag.trendStrong && currentRSI > 60;
-
     const bearishTrendSetup =
         diag.dailyBias === "BEARISH" &&
-        !(diag.gapDown && !diag.breakDown && !gapDownFilled && !gapDownAllowed) &&
-        diag.belowVWAP &&
-        (
-            (diag.trendStrong && diag.rsiBearish && (diag.trendDown && diag.breakoutStrong) && (diag.volConfirm || diag.bigCandle)) ||
-            (pullbackShort) ||
-            (continuationShort) ||
-            (microPullbackDown && momentumDown)
-        );
+        diag.trendStrong &&
+        diag.rsiBearish &&
+        (diag.trendDown || diag.bigCandle) &&
+        !(diag.gapDown && !diag.breakDown && !gapDownFilled) && // ✅ FIX #8
+        diag.volConfirm &&
+        diag.belowVWAP   // ✅ PRO — institutional bias confirmation
+
 
     const bullishTrendSetup =
         diag.dailyBias === "BULLISH" &&
-        !(diag.gapUp && !diag.breakUp && !gapUpFilled && !gapUpAllowed) &&
-        diag.aboveVWAP &&
-        (
-            (diag.trendStrong && diag.rsiBullish && (diag.trendUp && diag.breakoutStrong) && (diag.volConfirm || diag.bigCandle)) ||
-            (pullbackLong) ||
-            (continuationLong) ||
-            (microPullbackUp && momentumUp)
-        );
-
-
-
-
-    // const maxConsecLoss = CFG.MAX_CONSECUTIVE_LOSS ?? 3;
-    // if ((sessionState.consecutiveLosses ?? 0) >= maxConsecLoss) {
-    //     diag.warnings.push("DAILY_LOSS_LIMIT_REACHED");
-    //     return {
-    //         signal: "NO_TRADE",
-    //         reason: `max_consecutive_losses_${sessionState.consecutiveLosses}`,
-    //         ...diag
-    //     };
-    // }
-    // ── VWAP DISTANCE FILTER ─────────────────
-
-    // After ATR calculation:
-    const last15m = index15m[index15m.length - 1];
-    const prev15m = index15m[index15m.length - 2];
-
-    const bullClose15m = last15m.close > prev15m.close && last15m.close > last15m.open;
-    const bearClose15m = last15m.close < prev15m.close && last15m.close < last15m.open;
-
-
-    const vwapDistance = Math.abs(lastFuture.close - currentVWAP);
-
-    if (vwapDistance < CFG.VWAP_MIN_DISTANCE) {
-        return { signal: "NO_TRADE", reason: "price_too_close_to_vwap", ...diag };
-    }
-
-
-
-    // After 15m structure block:
-    const ema15m = calculateEMA(index15m, 20);
-    const lastEMA15m = ema15m[ema15m.length - 1];
-    const last15mClose = index15m[index15m.length - 1].close;
-
-    diag.above15mEMA = last15mClose > lastEMA15m;
-    diag.below15mEMA = last15mClose < lastEMA15m;
-
-    // Triple confirmation — daily + 5m + 15m all aligned
-    if (bearishTrendSetup && !diag.below15mEMA) {
-        return { signal: "NO_TRADE", reason: "price_above_15m_ema_blocks_pe", ...diag };
-    }
-    if (bullishTrendSetup && !diag.above15mEMA) {
-        return { signal: "NO_TRADE", reason: "price_below_15m_ema_blocks_ce", ...diag };
-    }
-
-    // After 1m data:
-    let consecutiveBearBars = 0;
-    let consecutiveBullBars = 0;
-
-    for (let i = index1m.length - 1; i >= Math.max(0, index1m.length - 12); i--) {
-        const c = index1m[i];
-        if (c.close < c.open) consecutiveBearBars++;
-        else break;
-    }
-    for (let i = index1m.length - 1; i >= Math.max(0, index1m.length - 12); i--) {
-        const c = index1m[i];
-        if (c.close > c.open) consecutiveBullBars++;
-        else break;
-    }
-
-    const TREND_AGE_MAX = CFG.TREND_AGE_MAX_BARS ?? 8;
-
-    if (bearishTrendSetup && consecutiveBearBars >= TREND_AGE_MAX) {
-        return { signal: "NO_TRADE", reason: `trend_overextended_${consecutiveBearBars}_bear_bars`, ...diag };
-    }
-    if (bullishTrendSetup && consecutiveBullBars >= TREND_AGE_MAX) {
-        return { signal: "NO_TRADE", reason: `trend_overextended_${consecutiveBullBars}_bull_bars`, ...diag };
-    }
-
-    // After body/range calc:
-    // const last7Ranges = index1m.slice(-7).map(c => c.high - c.low);
-    // const minRange7 = Math.min(...last7Ranges);
-    // const isNR7 = range <= minRange7 * (CFG.NR7_TOLERANCE ?? 1.05);
-
-    // diag.isNR7 = isNR7;
-
-    // if (isNR7) {
-    //     return {
-    //         signal: "NO_TRADE",
-    //         reason: "nr7_compression_direction_unknown",
-    //         ...diag
-    //     };
-    // }
-
-    // // After 5m data:
-    // const range5m = last5m.high - last5m.low;
-    // const closePos5m = range5m > 0
-    //     ? (last5m.close - last5m.low) / range5m
-    //     : 0.5;
-
-    // diag.closePos5m = parseFloat(closePos5m.toFixed(3));
-
-    // // PE needs 5m bar to have closed in lower half
-    // // CE needs 5m bar to have closed in upper half
-    // if (bearishTrendSetup && closePos5m > (CFG.MAX_5M_CLOSE_POS_BEAR ?? 0.45)) {
-    //     return {
-    //         signal: "NO_TRADE",
-    //         reason: `5m_close_too_high_${(closePos5m * 100).toFixed(0)}pct_blocks_pe`,
-    //         ...diag
-    //     };
-    // }
-    // if (bullishTrendSetup && closePos5m < (CFG.MIN_5M_CLOSE_POS_BULL ?? 0.55)) {
-    //     return {
-    //         signal: "NO_TRADE",
-    //         reason: `5m_close_too_low_${(closePos5m * 100).toFixed(0)}pct_blocks_ce`,
-    //         ...diag
-    //     };
-    // }
-    // const recentVols = future1m.slice(-5).map(c => c.volume);
-    // const vol1 = recentVols[recentVols.length - 1];
-    // const vol2 = recentVols[recentVols.length - 2];
-    // const vol3 = recentVols[recentVols.length - 3];
-
-    // // 3 consecutive declining volume bars = drying up
-    // const volumeDryingUp = vol1 < vol2 && vol2 < vol3;
-
-    // if (volumeDryingUp && !diag.volConfirm) {
-    //     return { signal: "NO_TRADE", reason: "volume_drying_up_no_conviction", ...diag };
-    // }
-
-
-
-
-
-    // // After 1m data — check last 4 bars for sequence integrity:
-    // const b1 = index1m[index1m.length - 4];
-    // const b2 = index1m[index1m.length - 3];
-    // const b3 = index1m[index1m.length - 2];
-    // const b4 = index1m[index1m.length - 1];
-
-    // if (b1 && b2 && b3 && b4) {
-
-    //     // ── Bear sequence check ──────────────────
-    //     const bearSequence = b2.low < b1.low && b3.low < b2.low;
-
-    //     const bearSeqBroken =
-    //         bearSequence &&
-    //         b4.low > b3.low &&                                    // Condition 1: higher low formed
-    //         (b4.low - b3.low) > (CFG.SEQ_BREAK_MIN_PTS ?? 10) && // Condition 2: break is meaningful (not 2pt noise)
-    //         b4.close > b4.open;                                   // Condition 3: bar also closed bullish (buyers confirmed)
-
-    //     // ── Bull sequence check ──────────────────
-    //     const bullSequence = b2.high > b1.high && b3.high > b2.high;
-
-    //     const bullSeqBroken =
-    //         bullSequence &&
-    //         b4.high < b3.high &&                                   // Condition 1: lower high formed
-    //         (b3.high - b4.high) > (CFG.SEQ_BREAK_MIN_PTS ?? 10) && // Condition 2: break is meaningful
-    //         b4.close < b4.open;                                    // Condition 3: bar also closed bearish (sellers confirmed)
-
-    //     if (bearishTrendSetup && bearSeqBroken) {
-    //         return {
-    //             signal: "NO_TRADE",
-    //             reason: `bear_seq_broken_hl_${(b4.low - b3.low).toFixed(0)}pts_bullish_close`,
-    //             ...diag
-    //         };
-    //     }
-    //     if (bullishTrendSetup && bullSeqBroken) {
-    //         return {
-    //             signal: "NO_TRADE",
-    //             reason: `bull_seq_broken_lh_${(b3.high - b4.high).toFixed(0)}pts_bearish_close`,
-    //             ...diag
-    //         };
-    //     }
-    // }
-
-    if (currentADX > 65)
-        return { signal: "NO_TRADE", reason: "adx_too_high", ...diag };
-
-    if (currentADX < 18)
-        return { signal: "NO_TRADE", reason: "adx_too_low", ...diag };
-
-    // const emaDistance = Math.abs(last1m.close - ema5m[ema5m.length - 1]);
-
-    // if (emaDistance > CFG.MAX_EMA_DISTANCE ?? 120) {
-    //     return { signal: "NO_TRADE", reason: "price_far_from_ema", ...diag };
-    // }
-
-    // // After 15m structure block:
-    // const rsi15mArr = calculateRSI(index15m, 14, diag.warnings);
-    // const rsi15m = rsi15mArr[rsi15mArr.length - 1] ?? 50;
-
-    // diag.currentRSI15m = parseFloat(rsi15m.toFixed(1));
-
-    // // PE needs 15m RSI below 50 (sellers in control on 15m)
-    // // CE needs 15m RSI above 50 (buyers in control on 15m)
-    // if (bearishTrendSetup && rsi15m > (CFG.RSI15M_BEAR_MAX ?? 52)) {
-    //     return {
-    //         signal: "NO_TRADE",
-    //         reason: `15m_rsi_${rsi15m.toFixed(1)}_too_high_blocks_pe`,
-    //         ...diag
-    //     };
-    // }
-    // if (bullishTrendSetup && rsi15m < (CFG.RSI15M_BULL_MIN ?? 48)) {
-    //     return {
-    //         signal: "NO_TRADE",
-    //         reason: `15m_rsi_${rsi15m.toFixed(1)}_too_low_blocks_ce`,
-    //         ...diag
-    //     };
-    // }
-
-
-    // ── 5M WICK REJECTION FILTER ─────────────────
-    // Long lower wick on 5m = buyers defended low strongly = PE SL
-    // Long upper wick on 5m = sellers defended high strongly = CE SL
-
-    const upper5m = last5m.high - Math.max(last5m.open, last5m.close);
-    const lower5m = Math.min(last5m.open, last5m.close) - last5m.low;
-    const range5m = last5m.high - last5m.low;
-
-    const upper5mRatio = range5m > 0 ? upper5m / range5m : 0;
-    const lower5mRatio = range5m > 0 ? lower5m / range5m : 0;
-
-    const WICK_5M_THRESHOLD = CFG.WICK_5M_THRESHOLD ?? 0.4;
-
-    const strongBuyWick5m = lower5mRatio > WICK_5M_THRESHOLD;
-    const strongSellWick5m = upper5mRatio > WICK_5M_THRESHOLD;
-
-    diag.strongBuyWick5m = strongBuyWick5m;
-    diag.strongSellWick5m = strongSellWick5m;
-    diag.upper5mRatio = parseFloat(upper5mRatio.toFixed(3));
-    diag.lower5mRatio = parseFloat(lower5mRatio.toFixed(3));
-
-    if (bearishTrendSetup && strongBuyWick5m) {
-        return {
-            signal: "NO_TRADE",
-            reason: `5m_strong_buy_wick_${(lower5mRatio * 100).toFixed(0)}pct_blocks_pe`,
-            ...diag
-        };
-    }
-    if (bullishTrendSetup && strongSellWick5m) {
-        return {
-            signal: "NO_TRADE",
-            reason: `5m_strong_sell_wick_${(upper5mRatio * 100).toFixed(0)}pct_blocks_ce`,
-            ...diag
-        };
-    }
-
-
-
-
-
-
-
-
-    // In generateSignal.js after candle body calc:
-    const upperWick = last1m.high - Math.max(last1m.open, last1m.close);
-    const lowerWick = Math.min(last1m.open, last1m.close) - last1m.low;
-
-    // For PE entry — long upper wick = sellers tried but failed = weak
-    const weakBearCandle = upperWick > body * CFG.WICK_BODY_RATIO ?? 0.6;
-    // For CE entry — long lower wick = buyers tried but failed = weak  
-    const weakBullCandle = lowerWick > body * CFG.WICK_BODY_RATIO ?? 0.6;
-
-    if (bearishTrendSetup && weakBearCandle) {
-        return { signal: "NO_TRADE", reason: "weak_bear_wick_rejection", ...diag };
-    }
-    if (bullishTrendSetup && weakBullCandle) {
-        return { signal: "NO_TRADE", reason: "weak_bull_wick_rejection", ...diag };
-    }
-
-    // const prevRange = prev1m.high - prev1m.low;
-
-    // if (range > prevRange * 2.5) {
-    //     return { signal: "NO_TRADE", reason: "exhaustion_candle", ...diag };
-    // }
-
-    if (bearishTrendSetup && bearClose15m) {
+        diag.trendStrong &&
+        diag.rsiBullish &&
+        (diag.trendUp || diag.bigCandle) &&
+        !(diag.gapUp && !diag.breakUp && !gapUpFilled) &&       // ✅ FIX #8
+        diag.volConfirm &&
+        diag.aboveVWAP   // ✅ PRO — institutional bias confirmation
+
+
+    if (bearishTrendSetup) {
         logger.debug(`🔻 BEARISH setup | breakDown:${diag.breakDown} ADX:${diag.currentADX}`);
 
         return {
@@ -698,7 +413,7 @@ export function generateSignal(index1m, index5m, index15m, future1m, data1D, ses
         };
     }
 
-    if (bullishTrendSetup && bullClose15m) {
+    if (bullishTrendSetup) {
         logger.debug(`🔺 BULLISH setup | breakUp:${diag.breakUp} ADX:${diag.currentADX}`);
         return {
             signal: "CE",

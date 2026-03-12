@@ -150,7 +150,7 @@ async function main() {
                 }
             }
 
-            startFeed(jwt, feedToken, "99919000", async (tick) => {
+            startFeed(jwt, feedToken, "BSE_INDEX|SENSEX", async (tick) => {
                 if (Math.random() < 0.05) {
                     logger.info(`📡 WS Heartbeat → LTP:${tick.ltp} Vol:${tick.volume} OI:${tick.oi}`);
                 }
