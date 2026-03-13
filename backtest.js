@@ -3,7 +3,7 @@ dotenv.config();
 
 import { logger, getISTTime, btLogger } from "./logger.js";
 import { sleep, buildTimeframe } from "./helpers.js";
-import { getHistorical, getFuture, format } from "./api/historical.js";
+import { getHistorical, getFuture, format } from "./historical.js";
 import { generateSignal } from "./signals.js";
 
 

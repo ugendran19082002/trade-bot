@@ -4,8 +4,8 @@ import fs from "fs";
 
 import { logger, getISTTime } from "./logger.js";
 import { sleep, getTodayFromDate, formatISTDateTime, updateEnvKey } from "./helpers.js";
-import { login, clearTokenCache, getFeedToken } from "./api/auth.js";
-import { getFutureToken } from "./api/tokens.js";
+import { login, clearTokenCache, getFeedToken } from "./auth.js";
+import { getFutureToken } from "./tokens.js";
 import { entryEngine, onTradeExit, checkAndHandleIndexExit } from "./entryEngine.js";
 import { backtest } from "./backtest.js";
 import { startFeed, stopFeed } from "./wsMarketFeed.js";
@@ -215,7 +215,7 @@ async function main() {
                     // ✅ Fetch SENSEX index LTP via SYMBOLTOKEN (ONE_MINUTE candle)
                     // NOT getFuture — future price has a spread vs spot index.
                     try {
-                        const { getHistorical, format } = await import("./api/historical.js");
+                        const { getHistorical, format } = await import("./historical.js");
                         const SYMBOLTOKEN = process.env.SYMBOLTOKEN;
                         const pollFrom = getTodayFromDate(1);
                         const pollTo = formatISTDateTime();

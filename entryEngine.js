@@ -3,7 +3,7 @@ dotenv.config();
 
 import { logger, tradeLogger, getISTTime } from "./logger.js";
 import { sleep, getDailyFromDate, buildTimeframe } from "./helpers.js";
-import { getHistorical, getFuture, format } from "./api/historical.js";
+import { getHistorical, getFuture, format } from "./historical.js";
 import { getATMOptionTokens, getLTP } from "./getStrick.js";
 import { generateSignal } from "./signals.js";
 import { sendTelegram } from "./telegram.js";
