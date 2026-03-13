@@ -278,7 +278,7 @@ export async function checkExitAndCleanup(jwtToken, symbol, params = {}) {
 //  Exchange manages both legs — no margin conflict, no timing issues
 // ═══════════════════════════════════════════════════════════════════
 export async function executeOrder(jwt, signal) {
-    let { optionToken, optionSymbol, optionLTP, optionSL, optionTarget } = signal;
+    let { optionToken, optionSymbol, optionLTP } = signal;
 
     if (!optionToken || optionLTP == null) {
         logger.warn("⚠ executeOrder: missing token or LTP");
@@ -309,16 +309,6 @@ export async function executeOrder(jwt, signal) {
     // ── Resolve absolute SL & Target prices ──────────────────────────────
 
 
-    // Sanity guards
-    if (optionSL >= optionLTP) {
-        logger.warn(`⚠ SL ${optionSL} >= LTP ${optionLTP} — clamping`);
-        optionSL = parseFloat((optionLTP * 0.95).toFixed(1));
-    }
-    if (optionTarget <= optionLTP) {
-        logger.warn(`⚠ TGT ${optionTarget} <= LTP ${optionLTP} — clamping`);
-        optionTarget = parseFloat((optionLTP * 1.10).toFixed(1));
-    }
-
     // ── Tick alignment helper (BSE F&O tick = Rs0.05) ─────────────────────
     const toTick = (v) => parseFloat((Math.round(v / 0.05) * 0.05).toFixed(2));
 
@@ -341,12 +331,8 @@ export async function executeOrder(jwt, signal) {
 
     // ── Tick-align SL & Target so leg distances are clean multiples of 0.05 ─
     // Un-aligned values produce fractional slv/sov that Kotak may reject.
-    optionSL = toTick(optionSL);
-    optionTarget = toTick(optionTarget);
-
-    // ── BO leg distances ────────────────────────────────────────────────────
-    const slDistance = toTick(entryPrice - optionSL);
-    const tgtDistance = toTick(optionTarget - entryPrice);
+    const slDistance = toTick(parseFloat(process.env.OPTION_SL ?? "50"));
+    const tgtDistance = toTick(parseFloat(process.env.OPTION_TGT ?? "300"));
 
     // Guard: both legs must be at least one tick (Rs0.05)
     if (slDistance < 0.05 || tgtDistance < 0.05) {
@@ -354,7 +340,7 @@ export async function executeOrder(jwt, signal) {
         return;
     }
 
-    logger.info(`📐 Bracket Order | Entry:${entryPrice} | SL:${optionSL} (dist:${slDistance}) | TGT:${optionTarget} (dist:${tgtDistance})`);
+    logger.info(`📐 Bracket Order | Entry:${entryPrice} | SL:${process.env.OPTION_SL} (dist:${slDistance}) | TGT:${process.env.OPTION_TGT} (dist:${tgtDistance})`);
 
     // ── PLACE BRACKET ORDER ───────────────────────────────────────────────
     // Single API call — exchange places entry + SL + target together
@@ -379,7 +365,7 @@ export async function executeOrder(jwt, signal) {
         sot: "Absolute",             // Target type = rupee amount
         sov: String(tgtDistance),    // ✅ Target distance (rupees above entry)
         tlt: "Y",                    // No trailing SL
-        tsv: "100"                     // Trailing SL value = 0
+        tsv: "25"                     // Trailing SL value = 0
     };
 
     try {
@@ -393,10 +379,10 @@ export async function executeOrder(jwt, signal) {
             const orderNo = res.data.nOrdNo;
             logger.info(`✅ BRACKET ORDER PLACED: ${orderNo}`);
             logger.info(`   📌 Entry  : ${entryPrice} (Limit BUY)`);
-            logger.info(`   🛡  SL     : ${optionSL}  (falls by ₹${slDistance})`);
-            logger.info(`   🎯 Target  : ${optionTarget} (rises by ₹${tgtDistance})`);
+            logger.info(`   🛡  SL     : ${process.env.OPTION_SL}  (falls by ₹${slDistance})`);
+            logger.info(`   🎯 Target  : ${process.env.OPTION_TGT} (rises by ₹${tgtDistance})`);
             logger.info(`   📋 Symbol  : ${symbol} | Qty: ${LOT_SIZE} | Exchange: ${EXCHANGE}`);
-            return { orderNo, optionSL, optionTarget, entryPrice, slDistance, tgtDistance };
+            return { orderNo, optionSL: process.env.OPTION_SL, optionTarget: process.env.OPTION_TGT, entryPrice, slDistance, tgtDistance };
         }
 
         logger.error(`❌ Bracket Order failed: ${JSON.stringify(res.data)}`);

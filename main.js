@@ -187,7 +187,7 @@ async function main() {
 
             const liveFrom = getTodayFromDate(29);
             const liveTo = formatISTDateTime();
-            // const liveTo = "2026-03-12 14:52";
+            // const liveTo = "2026-03-13 09:56";
 
             const futureToken = await getFutureToken(process.env.INDEX_SYMBOL || "SENSEX", liveTo);
 

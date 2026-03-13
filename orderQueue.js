@@ -75,7 +75,13 @@ async function ensureQueue() {
 
         orderWorker.on("failed", (job, err) => logger.error(`❌ OrderQueue job ${job?.id} failed: ${err.message}`));
         orderWorker.on("completed", (job) =>{
-                openPosition(job.data.signalObj); // ✅ only after broker confirms
+            const signalObj = job.data?.signalObj;
+            if (!signalObj) {
+                logger.error("❌ OrderQueue completed but signalObj missing");
+                return;
+            }
+            openPosition(signalObj);
+            logger.info(`✅ OrderQueue job ${job.id} done`);
 
             logger.info(`✅ OrderQueue job ${job.id} done`)});
         orderWorker.on("error", (err) => {
