@@ -120,6 +120,10 @@ export async function getHistorical(jwt, exchange, token, interval, fromdate, to
                 label: `${token} ${minutes}m`,
             });
         }
+        if (!candles.length) {
+            logger.warn(`⚠ No candles after filtering by toDate: ${todate}`);
+            return [];
+        }
 
         // Staleness check (live mode only — skip when replaying via todate)
         const lastCandle = candles[candles.length - 1];
@@ -128,10 +132,7 @@ export async function getHistorical(jwt, exchange, token, interval, fromdate, to
 
         logger.info(`🕒 Historical last candle: ${lastCandle[0]} | Delay: ${diffMin.toFixed(2)}m`);
 
-        if (!candles.length) {
-            logger.warn(`⚠ No candles after filtering by toDate: ${todate}`);
-            return [];
-        }
+
 
         logger.info(`📈 ${interval} candles after filter: ${candles.length}`);
         return candles;

@@ -68,11 +68,11 @@ export async function backtest(jwt, futureToken, btFrom, btTo, options = {}) {
     }
 
     const rawIndex1m = await fetchWithRetry("1m index", () => getHistorical(null, null, process.env.SYMBOLTOKEN, "ONE_MINUTE", btFrom, btTo));
-    await sleep(2000);
+    await sleep(400);
     const rawIndex5m = await fetchWithRetry("5m index", () => getHistorical(null, null, process.env.SYMBOLTOKEN, "FIVE_MINUTE", btFrom, btTo));
-    await sleep(2000);
+    await sleep(400);
     const rawIndex15m = await fetchWithRetry("15m index", () => getHistorical(null, null, process.env.SYMBOLTOKEN, "FIFTEEN_MINUTE", btFrom, btTo));
-    await sleep(2000);
+    await sleep(400);
 
     const p = n => String(n).padStart(2, "0");
     const warmupDate = new Date(btFrom);

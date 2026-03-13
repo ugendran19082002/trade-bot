@@ -8,6 +8,8 @@ dotenv.config();
 // ═════════════════════════════════════════════════════════════════════════════
 import { logger } from "./logger.js";
 import { executeOrder } from "./order.js";
+import { openPosition } from "./positionManager.js";
+
 
 let orderQueue = null;
 let orderWorker = null;
@@ -72,7 +74,10 @@ async function ensureQueue() {
         );
 
         orderWorker.on("failed", (job, err) => logger.error(`❌ OrderQueue job ${job?.id} failed: ${err.message}`));
-        orderWorker.on("completed", (job) => logger.info(`✅ OrderQueue job ${job.id} done`));
+        orderWorker.on("completed", (job) =>{
+                openPosition(job.data.signalObj); // ✅ only after broker confirms
+
+            logger.info(`✅ OrderQueue job ${job.id} done`)});
         orderWorker.on("error", (err) => {
             logger.warn(`⚠ OrderWorker error: ${err.message}`);
             queueReady = false;

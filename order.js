@@ -278,7 +278,7 @@ export async function checkExitAndCleanup(jwtToken, symbol, params = {}) {
 //  Exchange manages both legs — no margin conflict, no timing issues
 // ═══════════════════════════════════════════════════════════════════
 export async function executeOrder(jwt, signal) {
-    const { optionToken, optionSymbol, optionLTP } = signal;
+    let { optionToken, optionSymbol, optionLTP, optionSL, optionTarget } = signal;
 
     if (!optionToken || optionLTP == null) {
         logger.warn("⚠ executeOrder: missing token or LTP");
@@ -307,19 +307,7 @@ export async function executeOrder(jwt, signal) {
     }
 
     // ── Resolve absolute SL & Target prices ──────────────────────────────
-    let optionSL, optionTarget;
-    if (signal.optionSL != null && signal.optionTarget != null &&
-        !isNaN(parseFloat(signal.optionSL)) && !isNaN(parseFloat(signal.optionTarget))) {
-        optionSL = parseFloat(parseFloat(signal.optionSL).toFixed(1));
-        optionTarget = parseFloat(parseFloat(signal.optionTarget).toFixed(1));
-    } else {
-        const slPts = parseFloat(signal.slPoints ?? 80);
-        const tgtPts = parseFloat(signal.tgtPoints ?? 200);
-        const delta = parseFloat(process.env.DELTA_VALUE ?? 0.5);
-        optionSL = parseFloat(Math.max(0.1, optionLTP - slPts * delta).toFixed(1));
-        optionTarget = parseFloat(Math.max(0.1, optionLTP + tgtPts * delta).toFixed(1));
-        logger.warn(`⚠ Using delta fallback SL/TGT (delta=${delta})`);
-    }
+
 
     // Sanity guards
     if (optionSL >= optionLTP) {
@@ -390,8 +378,8 @@ export async function executeOrder(jwt, signal) {
         slv: String(slDistance),     // ✅ SL distance (rupees below entry)
         sot: "Absolute",             // Target type = rupee amount
         sov: String(tgtDistance),    // ✅ Target distance (rupees above entry)
-        tlt: "N",                    // No trailing SL
-        tsv: "0"                     // Trailing SL value = 0
+        tlt: "Y",                    // No trailing SL
+        tsv: "100"                     // Trailing SL value = 0
     };
 
     try {

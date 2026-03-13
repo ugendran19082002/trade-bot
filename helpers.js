@@ -261,8 +261,8 @@ export function calculateOptionLevels({
     // ── Absolute option price levels ──────────────────────────────────────
     // SL     = optionLTP - SLMove  - slBuffer   (wider  → less premature exit)
     // Target = optionLTP + TGTMove - tgtBuffer  (tighter → easier to hit)
-    const optionSL = parseFloat((optionLTP - optionSLMove - slBuffer).toFixed(2));
-    const optionTarget = parseFloat((optionLTP + optionTargetMove - tgtBuffer).toFixed(2));
+    const optionSL = parseFloat((optionLTP - optionSLMove).toFixed(2));
+    const optionTarget = parseFloat((optionLTP + optionTargetMove).toFixed(2));
 
     // ── Sanity guards ─────────────────────────────────────────────────────
     const safeOptionSL = Math.max(0.05, optionSL);
