@@ -72,6 +72,142 @@ function maybeDailyReset() {
 let _tradeLock = false;
 let _iterationCount = 0;
 
+// ── Last signal Redis cache helpers ──────────────────────────────────────
+//  Key: "lastSignal"
+//  Value: { signal, entryPrice, slPrice, tgtPrice, slPoints, tgtPoints, side }
+//  Purpose: When the next signal arrives, FIRST check if the PREVIOUS signal's
+//           SENSEX SL or TGT level was already crossed. If not yet crossed →
+//           block new entry (last trade may still be live / pending broker exit).
+//           If crossed → allow new signal.
+
+const LAST_SIGNAL_KEY = "lastSignal";
+
+async function saveLastSignal(signalObj) {
+    try {
+        const payload = JSON.stringify({
+            signal: signalObj.signal,
+            entryPrice: signalObj.entryPrice,
+            slPrice: signalObj.slPrice,
+            tgtPrice: signalObj.tgtPrice,
+            slPoints: signalObj.slPoints,
+            tgtPoints: signalObj.tgtPoints,
+            side: signalObj.signal,   // "CE" | "PE"
+            savedAt: Date.now(),
+        });
+        await setCandles(LAST_SIGNAL_KEY, payload, "1m");
+        logger.info(`💾 lastSignal cached → ${signalObj.signal} Entry:${signalObj.entryPrice} SL:${signalObj.slPrice} TGT:${signalObj.tgtPrice}`);
+    } catch (e) {
+        logger.warn(`⚠ saveLastSignal failed: ${e.message}`);
+    }
+}
+
+async function clearLastSignal() {
+    try {
+        await setCandles(LAST_SIGNAL_KEY, null, "1m");
+        logger.info("🗑  lastSignal cleared from cache");
+    } catch (e) {
+        logger.warn(`⚠ clearLastSignal failed: ${e.message}`);
+    }
+}
+
+async function getLastSignal() {
+    try {
+        const raw = await getCandles(LAST_SIGNAL_KEY);
+        if (!raw) return null;
+        // getCandles returns parsed JSON or string depending on how it was stored
+        const obj = typeof raw === "string" ? JSON.parse(raw) : raw;
+        if (!obj || !obj.signal) return null;
+        return obj;
+    } catch (e) {
+        logger.warn(`⚠ getLastSignal failed: ${e.message}`);
+        return null;
+    }
+}
+
+/**
+ * checkLastSignalExited
+ * ─────────────────────
+ * Called at the START of every loop tick, BEFORE processing a new signal.
+ *
+ * Flow:
+ *   1. Load "lastSignal" from Redis.
+ *   2. Fetch the latest SENSEX index LTP (1m candle).
+ *   3. Compute whether SL or TGT was crossed for that saved signal.
+ *   4a. If crossed  → clear lastSignal from Redis, return { exited: true, reason }
+ *   4b. If NOT yet  → return { exited: false, reason: "pending" }
+ *       → entryEngine must block new signal until 4a happens.
+ *   5. If no lastSignal in Redis → return { exited: true } (nothing pending).
+ *
+ * @param {string} SYMBOLTOKEN  – e.g. "BSE_INDEX|SENSEX"
+ * @param {string} fromdate     – same fromdate used by the loop
+ * @param {string} todate       – same todate used by the loop
+ */
+async function checkLastSignalExited(SYMBOLTOKEN, fromdate, todate) {
+    const last = await getLastSignal();
+    if (!last) return { exited: true, reason: "no_pending_signal" };
+
+    // Fetch latest index LTP
+    let currentLTP = null;
+    try {
+        const iRaw = await getHistorical(null, null, SYMBOLTOKEN, "ONE_MINUTE", fromdate, todate);
+        const iData = format(iRaw);
+        if (iData && iData.length) {
+            currentLTP = parseFloat(iData[iData.length - 1].close);
+        }
+    } catch (e) {
+        logger.warn(`⚠ checkLastSignalExited: LTP fetch failed (${e.message}) — blocking new signal`);
+        return { exited: false, reason: "ltp_fetch_failed" };
+    }
+
+    if (currentLTP === null) {
+        logger.warn("⚠ checkLastSignalExited: no LTP data — blocking new signal");
+        return { exited: false, reason: "no_ltp_data" };
+    }
+
+    const isPE = last.side === "PE";
+
+    // Recompute absolute SL/TGT levels from stored entry + points
+    // (same logic as checkAndHandleIndexExit)
+    const slLevel = isPE
+        ? parseFloat((last.entryPrice + last.slPoints).toFixed(2))
+        : parseFloat((last.entryPrice - last.slPoints).toFixed(2));
+    const tgtLevel = isPE
+        ? parseFloat((last.entryPrice - last.tgtPoints).toFixed(2))
+        : parseFloat((last.entryPrice + last.tgtPoints).toFixed(2));
+
+    let crossed = null;
+    if (isPE) {
+        if (currentLTP >= slLevel) crossed = "SL";
+        else if (currentLTP <= tgtLevel) crossed = "TGT";
+    } else {
+        if (currentLTP <= slLevel) crossed = "SL";
+        else if (currentLTP >= tgtLevel) crossed = "TGT";
+    }
+
+    logger.info(
+        `🔍 LastSignal check | ${last.side} Entry:${last.entryPrice} ` +
+        `SL_Level:${slLevel} TGT_Level:${tgtLevel} CurrentLTP:${currentLTP} ` +
+        `→ ${crossed ?? "NOT_CROSSED"}`
+    );
+
+    if (crossed) {
+        logger.info(`✅ Last signal ${crossed} confirmed at LTP:${currentLTP} — clearing cache`);
+        await clearLastSignal();
+        return { exited: true, reason: crossed, ltp: currentLTP };
+    }
+
+    // Not yet crossed — block new entry
+    return {
+        exited: false,
+        reason: "pending_exit",
+        ltp: currentLTP,
+        slLevel,
+        tgtLevel,
+        lastSide: last.side,
+        lastEntry: last.entryPrice,
+    };
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 //  ENTRY ENGINE
 // ═════════════════════════════════════════════════════════════════════════════
@@ -103,11 +239,37 @@ export async function entryEngine(fromdate, todate, futureToken) {
         return { signal: "NO_TRADE", reason: "position_already_open" };
     }
 
-    // ── Fetch candle data ─────────────────────────────────────────────────
+    // ── Last signal SL/TGT cross check ───────────────────────────────────────
+    //  Before allowing a NEW signal, verify that the PREVIOUS signal's index
+    //  level was already crossed (SL or TGT hit). If the last trade's exit
+    //  level hasn't been crossed yet, the broker order may still be live —
+    //  block new entry to avoid double positions.
+    //
+    //  This is stored in Redis under key "lastSignal" and is independent of
+    //  positionManager (which tracks the current open position in memory/disk).
+    //  The Redis check catches the gap between:
+    //    order placed → broker filled → positionManager.closePosition() called
+    //  during which isOpen() may already be FALSE but the index hasn't
+    //  crossed SL/TGT yet.
     const SYMBOLTOKEN = process.env.SYMBOLTOKEN;
     if (!SYMBOLTOKEN) {
         logger.error("❌ SYMBOLTOKEN not set");
         return { signal: "NO_TRADE", reason: "missing_SYMBOLTOKEN" };
+    }
+
+    {
+        const exitCheck = await checkLastSignalExited(SYMBOLTOKEN, fromdate, todate);
+        if (!exitCheck.exited) {
+            logger.info(
+                `⏳ Waiting for last signal exit | ${exitCheck.lastSide} @ ${exitCheck.lastEntry} | ` +
+                `LTP:${exitCheck.ltp} SL:${exitCheck.slLevel} TGT:${exitCheck.tgtLevel} | ` +
+                `Reason: ${exitCheck.reason}`
+            );
+            return { signal: "NO_TRADE", reason: `last_signal_pending_exit` };
+        }
+        if (exitCheck.reason !== "no_pending_signal") {
+            logger.info(`✅ Last signal exit confirmed (${exitCheck.reason} @ ${exitCheck.ltp}) — new signal allowed`);
+        }
     }
 
     const dailyFrom = getDailyFromDate();
@@ -288,6 +450,11 @@ ${biasIcon} ${r.dailyBias}   🕒 ${getISTTime()}${gapLine}
         return { signal: "NO_TRADE", reason: "order_failed" };
     }
 
+    // ── Cache signal in Redis for next-tick SL/TGT cross check ──────────
+    //  Stored here (after order confirmed) so the next loop tick can verify
+    //  whether this trade's index levels were crossed before allowing a new entry.
+    await saveLastSignal(signalObj);
+
     return signalObj;
 }
 
@@ -301,6 +468,13 @@ export function onTradeExit(pnl, reason = "UNKNOWN", exitPrice = NaN) {
     _tradeLock = false;
 
     logger.info(`📊 Trade closed: ${reason} | PnL: ${pnl > 0 ? "+" : ""}${pnl}`);
+
+    // ── Clear last signal cache on confirmed exit ─────────────────────────
+    //  When the trade exits via broker fill / index cross, the Redis
+    //  "lastSignal" key is redundant — clear it so the next signal check
+    //  doesn't block unnecessarily. clearLastSignal() is async but fire-and-forget
+    //  here (non-critical — checkLastSignalExited will also clear on cross detection).
+    clearLastSignal().catch(e => logger.warn(`⚠ clearLastSignal in onTradeExit: ${e.message}`));
 
     // ── Consecutive loss counter ───────────────────────────────────────────
     if (reason === "SL") {
