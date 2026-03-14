@@ -123,18 +123,18 @@ export function generateSignal(index1m, index5m, index15m, future1m, data1D) {
     const istStr = new Date(last1m.time).toLocaleString("en-US", { timeZone: "Asia/Kolkata" });
     const istDate = new Date(istStr);
     const minuteOfDay = istDate.getHours() * 60 + istDate.getMinutes();
-    const TIME_START = CFG.TIME_START_MIN; // default 9:18 IST
-    const TIME_END = CFG.TIME_END_MIN;   // default 15:00 IST
+    const TIME_START = parseInt(CFG.TIME_START_MIN);  // ✅ always number
+    const TIME_END   = parseInt(CFG.TIME_END_MIN);    // ✅ always number
 
     // ─────────────────────────────────────────
     // INITIAL DIAGNOSTIC
     // ─────────────────────────────────────────
     const diag = getBaseDiag(last1m.close.toFixed(2), lastFuture.close.toFixed(2));
-    diag.spread = (lastFuture.close - last1m.close).toFixed(2);
     diag.warnings = [];
 
     diag.timeAllowed = minuteOfDay >= TIME_START && minuteOfDay <= TIME_END;
 
+ 
     // ─────────────────────────────────────────
     // DAILY BIAS
     // FIX #1 — Enforce minimum 20 daily candles for reliable EMA

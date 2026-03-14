@@ -364,8 +364,8 @@ export async function executeOrder(signal) {
         slv: String(slDistance),     // ✅ SL distance (rupees below entry)
         sot: "Absolute",             // Target type = rupee amount
         sov: String(tgtDistance),    // ✅ Target distance (rupees above entry)
-        tlt: "Y",                    // No trailing SL
-        tsv: "25"                     // Trailing SL value = 0
+        tlt: "N",                    // No trailing SL
+        tsv: "0"                     // Trailing SL value = 0
     };
 
     try {

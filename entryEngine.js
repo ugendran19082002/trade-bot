@@ -13,7 +13,7 @@ import path from "path";
 
 import { canTrade, recordTrade, getRiskStatus, resetDaily } from "./riskEngine.js";
 import { isFlat, isOpen, openPosition, closePosition, getPosition, logStatus } from "./positionManager.js";
-import { setCandles, getCandles } from "./redisCache.js";
+import { setCandles, getCandles, invalidate } from "./redisCache.js";
 import { addOrderJob } from "./orderQueue.js";
 
 const USE_WORKER_THREADS = process.env.USE_WORKER_THREADS === "true";
@@ -103,7 +103,7 @@ async function saveLastSignal(signalObj) {
 
 async function clearLastSignal() {
     try {
-        await setCandles(LAST_SIGNAL_KEY, null, "1m");
+        await invalidate(LAST_SIGNAL_KEY);   // redis.del() — no null.length crash
         logger.info("🗑  lastSignal cleared from cache");
     } catch (e) {
         logger.warn(`⚠ clearLastSignal failed: ${e.message}`);
