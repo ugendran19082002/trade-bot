@@ -4,7 +4,6 @@ import fs from "fs";
 
 import { logger, getISTTime } from "./logger.js";
 import { sleep, getTodayFromDate, formatISTDateTime, updateEnvKey } from "./helpers.js";
-import { login, clearTokenCache, getFeedToken } from "./auth.js";
 import { getFutureToken } from "./tokens.js";
 import { entryEngine, onTradeExit, checkAndHandleIndexExit } from "./entryEngine.js";
 import { backtest } from "./backtest.js";
@@ -13,9 +12,6 @@ import { isOpen, getPosition } from "./positionManager.js";
 import { checkExitAndCleanup, marketExit } from "./order.js";
 import { kotakLogin } from "./kotak_login.js";
 import { getUpstoxToken } from "./up_stock_login.js";
-
-// ✅ gate status for logging
-import { getGateStatus, isGateActive } from "./tradeExitTracker.js";
 
 const USE_WEBSOCKET = process.env.USE_WEBSOCKET === "true";
 let _upstoxLoginInProgress = false;
@@ -39,9 +35,8 @@ async function main() {
         const btFrom = getTodayFromDate(29);
         const btTo = formatISTDateTime();
         logger.info(`📅 Window: ${btFrom} → ${btTo}`);
-        const jwt = await login();
         const futureToken = await getFutureToken(process.env.INDEX_SYMBOL || "SENSEX", btFrom);
-        await backtest(jwt, futureToken, btFrom, btTo, {
+        await backtest(futureToken, btFrom, btTo, {
             slPoints: parseInt(process.env.BT_SL ?? "80"),
             tgtPoints: parseInt(process.env.BT_TGT ?? "200"),
             startBar: 30,
@@ -55,7 +50,6 @@ async function main() {
 
     let lastSignal = null;
     let iteration = 0;
-    let forceLogin = false;
     let _lastWindowLog = null;
     let _noTradeLogCount = 0;
 
@@ -72,8 +66,6 @@ async function main() {
         _exitFired = true;
         _exitLock = false;
         onTradeExit(pnl, reason, exitPrice);
-        // onTradeExit → recordExit → gate level set in cache → next signal blocked
-        // until LTP crosses that level (checked inside entryEngine every tick)
         _positionOpenedAt = null;
         logger.debug(`🔒 safeExit fired [${reason}] PnL:${pnl}`);
     }
@@ -82,11 +74,10 @@ async function main() {
     if (USE_WEBSOCKET) {
         logger.info("🔌 Starting WebSocket feed...");
         try {
-            const jwt = await login();
             const futureToken = await getFutureToken(process.env.INDEX_SYMBOL || "SENSEX");
-            const feedToken = getFeedToken() || process.env.FEED_TOKEN || "";
+            const feedToken = process.env.FEED_TOKEN || "";
 
-            async function handleLiveExit(jwt, tickLtp) {
+            async function handleLiveExit(tickLtp) {
                 if (_exitLock || _exitFired || !isOpen()) return;
                 if (_positionOpenedAt && (Date.now() - _positionOpenedAt < BROKER_SETTLE_MS)) return;
 
@@ -95,13 +86,13 @@ async function main() {
 
                 _exitLock = true;
                 try {
-                    // ✅ Index-point SL/TGT check first (sets gate on exit)
-                    const indexExited = await checkAndHandleIndexExit(tickLtp, safeExit, jwt, marketExit);
+                    // Index-point SL/TGT check
+                    const indexExited = await checkAndHandleIndexExit(tickLtp, safeExit, marketExit);
                     if (indexExited) return;
 
                     // Fallback: broker fill check
                     const isPE = pos.side === "PE";
-                    const status = await checkExitAndCleanup(jwt, pos.optionSymbol, {
+                    const status = await checkExitAndCleanup(pos.optionSymbol, {
                         currentIndexLTP: tickLtp,
                         indexSL: pos.sl,
                         indexTGT: pos.target,
@@ -126,9 +117,9 @@ async function main() {
                 }
             }
 
-            startFeed(jwt, feedToken, "BSE_INDEX|SENSEX", async (tick) => {
+            startFeed(feedToken, "BSE_INDEX|SENSEX", async (tick) => {
                 if (Math.random() < 0.05) logger.info(`📡 WS → LTP:${tick.ltp}`);
-                await handleLiveExit(jwt, tick.ltp);
+                await handleLiveExit(tick.ltp);
             });
 
             logger.info("✅ WebSocket feed running");
@@ -147,9 +138,6 @@ async function main() {
             const istMins = istNow.getHours() * 60 + istNow.getMinutes();
 
             logger.info(`🔄 Loop #${iteration} | IST: ${getISTTime()}`);
-
-            let jwt = await login(forceLogin);
-            forceLogin = false;
 
             // ── Token refreshes ──────────────────────────────────────────────
             const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
@@ -187,7 +175,6 @@ async function main() {
 
             const liveFrom = getTodayFromDate(29);
             const liveTo = formatISTDateTime();
-            // const liveTo = "2026-03-13 09:56";
 
             const futureToken = await getFutureToken(process.env.INDEX_SYMBOL || "SENSEX", liveTo);
 
@@ -197,23 +184,13 @@ async function main() {
                 _lastWindowLog = windowKey;
             }
 
-            // ── Gate status log (every 10 iterations when gate is active) ────
-            if (isGateActive() && iteration % 10 === 1) {
-                const gs = getGateStatus();
-                logger.info(
-                    `🔒 Gate active | Need LTP ${gs.gateCrossDir} ${gs.gateLevel} ` +
-                    `[${gs.gateReason}] | Last exit: ${gs.lastExitReason} @ ${gs.lastExitPrice}`
-                );
-            }
-
             const positionJustOpened = _positionOpenedAt && (Date.now() - _positionOpenedAt < BROKER_SETTLE_MS);
 
             // ── Exit monitoring (REST polling path) ──────────────────────────
             if (isOpen() && !positionJustOpened && !_exitLock && !_exitFired) {
                 const pos = getPosition();
                 if (pos) {
-                    // ✅ Fetch SENSEX index LTP via SYMBOLTOKEN (ONE_MINUTE candle)
-                    // NOT getFuture — future price has a spread vs spot index.
+                    // Fetch SENSEX index LTP via SYMBOLTOKEN (ONE_MINUTE candle)
                     try {
                         const { getHistorical, format } = await import("./historical.js");
                         const SYMBOLTOKEN = process.env.SYMBOLTOKEN;
@@ -224,12 +201,10 @@ async function main() {
                         if (iData && iData.length) {
                             const currentIndexLTP = iData[iData.length - 1].close;
 
-                            // ✅ Index-point exit check (gate set inside on trigger)
                             const indexExited = await checkAndHandleIndexExit(
-                                currentIndexLTP, safeExit, jwt, marketExit
+                                currentIndexLTP, safeExit, marketExit
                             );
                             if (indexExited) {
-                                logger.info("✅ Index exit handled (polling) — gate now active for next trade");
                                 await sleep(5_000);
                                 continue;
                             }
@@ -241,7 +216,7 @@ async function main() {
                     // Broker REST poll — position gone at broker?
                     if (!_exitLock && !_exitFired && pos.optionSymbol) {
                         try {
-                            const status = await checkExitAndCleanup(jwt, pos.optionSymbol, { isPE: pos.side === "PE" });
+                            const status = await checkExitAndCleanup(pos.optionSymbol, { isPE: pos.side === "PE" });
                             if (status?.exited) {
                                 logger.info(`🔔 Broker exit detected (poll) for ${pos.optionSymbol}`);
                                 let exitPx = status.exitPrice;
@@ -262,13 +237,11 @@ async function main() {
             }
 
             // ── Entry Engine ────────────────────────────────────────────────
-            // entryEngine internally calls isPriceLevelGatePassed(currentLTP)
-            // and returns NO_TRADE if the gate is still blocked.
-            signalObj = await entryEngine(jwt, liveFrom, liveTo, futureToken);
+            signalObj = await entryEngine(liveFrom, liveTo, futureToken);
 
             if (signalObj?.signal && signalObj.signal !== "NO_TRADE") {
                 _positionOpenedAt = Date.now();
-                _exitFired = false;   // reset for new trade
+                _exitFired = false;
                 logger.debug(`📍 Position opened — settling ${BROKER_SETTLE_MS / 1000}s`);
             }
 
@@ -291,11 +264,6 @@ async function main() {
 
         } catch (err) {
             logger.error(`❌ Loop #${iteration} Error: ${err.message}`);
-            if (err.message === "INVALID_TOKEN") {
-                logger.warn("🚨 Session expired — re-login next loop");
-                clearTokenCache();
-                forceLogin = true;
-            }
         }
 
         await sleep(5_000);

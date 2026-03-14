@@ -7,7 +7,7 @@ import { getHistorical, getFuture, format } from "./historical.js";
 import { generateSignal } from "./signals.js";
 
 
-export async function backtest(jwt, futureToken, btFrom, btTo, options = {}) {
+export async function backtest(futureToken, btFrom, btTo, options = {}) {
     const {
         slPoints = 80,
         tgtPoints = 200,
@@ -45,18 +45,7 @@ export async function backtest(jwt, futureToken, btFrom, btTo, options = {}) {
                     await sleep(wait);
                 }
             } catch (err) {
-                if (err.message === "INVALID_TOKEN") {
-                    logger.warn(`🚨 ${label} failed: INVALID_TOKEN — attempting forced login...`);
-                    try {
-                        jwt = await login(true); // Update the jwt variable in outer scope
-                        logger.info("✅ Re-login success, retrying fetch...");
-                        // Don't increment attempt here, just retry with new token
-                        continue;
-                    } catch (loginErr) {
-                        logger.error(`❌ Re-login failed: ${loginErr.message}`);
-                        throw loginErr;
-                    }
-                }
+               
                 logger.error(`❌ ${label} error: ${err.message}`);
                 if (attempt >= maxRetries - 1) throw err;
             }

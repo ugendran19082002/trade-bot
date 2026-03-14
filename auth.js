@@ -52,34 +52,3 @@ function saveToken(jwt, feedToken = "") {
     fs.writeFileSync(TOKEN_FILE, JSON.stringify({ jwt, feedToken, savedAt: Date.now() }), "utf-8");
 }
 
-export async function login(force = false) {
-    // Return cached token if still valid
-    if (!force) {
-        const cached = loadCachedToken();
-        if (cached) return cached.jwt;
-    } else {
-        logger.warn("🔄 Forced login requested...");
-    }
-
-    try {
-        logger.info("🔐 Logging in...");
-        const otp = speakeasy.totp({ secret: process.env.TOTP_SECRET, encoding: "base32" });
-
-        const res = await axios.post(
-            `${BASE_URL}/rest/auth/angelbroking/user/v1/loginByPassword`,
-            { clientcode: process.env.CLIENT_ID, password: process.env.PASSWORD, totp: otp },
-            { headers: buildHeaders() }
-        );
-
-        const jwt = res.data.data.jwtToken;
-        const feedToken = res.data.data.feedToken ?? "";
-        saveToken(jwt, feedToken);
-
-        logger.info("✅ Login Success — JWT cached to disk");
-        return jwt;
-
-    } catch (err) {
-        logger.error(`❌ Login Failed: ${JSON.stringify(err.response?.data || err.message)}`);
-        process.exit(1);
-    }
-}

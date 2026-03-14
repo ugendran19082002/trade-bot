@@ -288,7 +288,7 @@ async function _scheduleReconnect(token) {
 // ─────────────────────────────────────────
 // PUBLIC: Start feed
 // ─────────────────────────────────────────
-export async function startFeed(jwt, feedToken, token, onTick) {
+export async function startFeed(feedToken, token, onTick) {
 
     if (!USE_WEBSOCKET) {
         logger.info("ℹ WebSocket feed disabled (USE_WEBSOCKET=false) — using REST polling");

@@ -76,7 +76,7 @@ function extractNetQty(pos) {
 // ─────────────────────────────────────────────────────
 // GET POSITIONS
 // ─────────────────────────────────────────────────────
-export async function getPositions(jwtToken) {
+export async function getPositions() {
     try {
         const res = await axios.get(
             `${BASE_URL}/quick/user/positions`,
@@ -150,7 +150,7 @@ async function exitBracketOrder(orderId) {
 // ─────────────────────────────────────────────────────
 // CLEANUP PENDING ORDERS
 // ─────────────────────────────────────────────────────
-export async function cleanupOrders(jwtToken, symbol) {
+export async function cleanupOrders(symbol) {
     const orders = await getOrderBook();
     const pending = orders.filter(o =>
         o.trdSym === symbol &&
@@ -168,7 +168,7 @@ export async function cleanupOrders(jwtToken, symbol) {
 // ─────────────────────────────────────────────────────
 // MARKET EXIT (emergency fallback)
 // ─────────────────────────────────────────────────────
-export async function marketExit(jwtToken, symbol, boOrderId = null) {
+export async function marketExit(symbol, boOrderId = null) {
     try {
         // If we have the BO order ID, use bo/exit — cleanest way
         if (boOrderId) {
@@ -177,7 +177,7 @@ export async function marketExit(jwtToken, symbol, boOrderId = null) {
         }
 
         // Fallback: MKT sell against position
-        const positions = await getPositions(jwtToken);
+        const positions = await getPositions();
         const p = positions.find(pos =>
             pos.trdSym === symbol &&
             extractNetQty(pos) !== 0 &&
@@ -185,7 +185,7 @@ export async function marketExit(jwtToken, symbol, boOrderId = null) {
         );
         if (!p) {
             logger.warn("⚠ marketExit: No position found");
-            await cleanupOrders(jwtToken, symbol);
+            await cleanupOrders(symbol);
             return false;
         }
         const qty = Math.abs(extractNetQty(p));
@@ -202,7 +202,7 @@ export async function marketExit(jwtToken, symbol, boOrderId = null) {
         );
         if (res.data?.stat === "Ok") {
             logger.info(`✅ Market Exit: ${res.data.nOrdNo}`);
-            await cleanupOrders(jwtToken, symbol);
+            await cleanupOrders(symbol);
             return true;
         }
         return false;
@@ -215,7 +215,7 @@ export async function marketExit(jwtToken, symbol, boOrderId = null) {
 // ─────────────────────────────────────────────────────
 // CHECK EXIT & CLEANUP
 // ─────────────────────────────────────────────────────
-export async function checkExitAndCleanup(jwtToken, symbol, params = {}) {
+export async function checkExitAndCleanup(symbol, params = {}) {
     if (!symbol) return;
     const { currentIndexLTP, indexSL, indexTGT, isPE, boOrderId } = params;
 
@@ -232,13 +232,13 @@ export async function checkExitAndCleanup(jwtToken, symbol, params = {}) {
         }
         if (triggerReason) {
             logger.info(`🎯 Index exit: ${triggerReason} (LTP:${price})`);
-            await marketExit(jwtToken, symbol, boOrderId);
+            await marketExit(symbol, boOrderId);
             return { exited: true, exitPrice: triggerReason };
         }
     }
 
     // 2. Check if broker BO already filled (position gone)
-    const positions = await getPositions(jwtToken);
+    const positions = await getPositions();
     const existing = positions.find(p =>
         p.trdSym === symbol &&
         extractNetQty(p) !== 0 &&
@@ -258,7 +258,7 @@ export async function checkExitAndCleanup(jwtToken, symbol, params = {}) {
         } catch (e) {
             logger.error(`❌ Exit price fetch: ${e.message}`);
         }
-        await cleanupOrders(jwtToken, symbol);
+        await cleanupOrders(symbol);
         return { exited: true, exitPrice: finalExitPrice };
     }
 
@@ -277,7 +277,7 @@ export async function checkExitAndCleanup(jwtToken, symbol, params = {}) {
 //  ONE single API call → entry + SL + target all placed together
 //  Exchange manages both legs — no margin conflict, no timing issues
 // ═══════════════════════════════════════════════════════════════════
-export async function executeOrder(jwt, signal) {
+export async function executeOrder(signal) {
     let { optionToken, optionSymbol, optionLTP } = signal;
 
     if (!optionToken || optionLTP == null) {
@@ -293,9 +293,9 @@ export async function executeOrder(jwt, signal) {
     const symbol = optionSymbol;
 
     // Cleanup stale + check no existing position
-    await cleanupOrders(jwt, symbol);
+    await cleanupOrders(symbol);
     await sleep(500);
-    const positions = await getPositions(jwt);
+    const positions = await getPositions();
     const existing = positions.find(p =>
         p.trdSym === symbol &&
         extractNetQty(p) !== 0 &&
@@ -315,7 +315,7 @@ export async function executeOrder(jwt, signal) {
     // ── Fetch live LTP via Angel One (market data provider) ─────────────────
     // Angel One segment for BSE F&O is always "BFO" — independent of Kotak "bse_fo".
     // getLTP returns the fetched[] array; extract ltp from element 0.
-    const ltpResult = await getLTP(jwt, { BFO: [String(optionToken)] });
+    const ltpResult = await getLTP({ BFO: [String(optionToken)] });
     const rawLTP = parseFloat(ltpResult?.[0]?.ltp ?? 0);
 
     // Fall back to signal LTP if live fetch failed (market closed / API error)

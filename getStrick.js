@@ -58,7 +58,7 @@ async function fetchLTPMap(jwtToken, tokens, exchangeSegment = "BFO") {
             const response = await axios.post(
                 MARKET_URL,
                 { mode: "LTP", exchangeTokens: { [exchangeSegment]: chunks[ci] } },
-                { headers: buildHeaders(jwtToken) }
+                { headers: buildHeaders() }
             );
 
             if (!response.data?.status) {
@@ -104,7 +104,6 @@ async function fetchLTPMap(jwtToken, tokens, exchangeSegment = "BFO") {
 export async function getATMOptionTokens(
     symbolName = "SENSEX",
     price,
-    jwtToken,
     targetPremium = process.env.CLOSEST_PREMIUM,
     strikeStep = 100,
     strikeRange = 20,
@@ -300,7 +299,7 @@ export async function getATMOptionTokens(
 
         let ltpMap;
         try {
-            ltpMap = await fetchLTPMap(jwtToken, allTokens, exchangeSegment);
+            ltpMap = await fetchLTPMap(allTokens, exchangeSegment);
         } catch (err) {
             if (err.message === "INVALID_TOKEN") throw err;
             logger.warn(`⚠️  fetchLTPMap threw: ${err.message} — fallback to next expiry ATM`);
@@ -362,12 +361,12 @@ export async function getATMOptionTokens(
 // ─────────────────────────────────────────
 // LTP ONLY (lightweight — for option LTP)
 // ─────────────────────────────────────────
-export async function getLTP(jwtToken, exchangeTokens) {
+export async function getLTP(exchangeTokens) {
     try {
         const response = await axios.post(
             MARKET_URL,
             { mode: "LTP", exchangeTokens },
-            { headers: buildHeaders(jwtToken) }
+            { headers: buildHeaders() }
         );
 
         if (!response.data?.status) {

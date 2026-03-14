@@ -2,8 +2,8 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import axios from "axios";
-import { logger } from "../logger.js";
-import { sleep } from "../helpers.js";
+import { logger } from "./logger.js";
+import { sleep } from "./helpers.js";
 
 const UPSTOX_BASE_URL = process.env.UPSTOX_BASE_URL || "https://api.upstox.com/v3";
 

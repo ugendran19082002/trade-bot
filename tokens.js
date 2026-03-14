@@ -2,9 +2,9 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import fs from "fs";
-import { logger } from "../logger.js";
-import { updateEnvKey } from "../helpers.js";
-import { loadScripMaster } from "../scriptMaster.js";
+import { logger } from "./logger.js";
+import { updateEnvKey } from "./helpers.js";
+import { loadScripMaster } from "./scriptMaster.js";
 
 const MONTH_MAP = {
     JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5,

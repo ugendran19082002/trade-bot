@@ -13,7 +13,6 @@ import { openPosition } from "./positionManager.js";
 
 let orderQueue = null;
 let orderWorker = null;
-let _jwt = null;
 let queueReady = false;
 let initDone = false;
 
@@ -67,8 +66,7 @@ async function ensureQueue() {
             async (job) => {
                 const { signalObj } = job.data;
                 logger.info(`📦 OrderQueue: processing job ${job.id} → ${signalObj.signal}`);
-                if (!_jwt) throw new Error("JWT not set");
-                await executeOrder(_jwt, signalObj);
+                await executeOrder(signalObj);
             },
             { connection: bclient, concurrency: 1 }
         );
@@ -101,15 +99,12 @@ async function ensureQueue() {
 // PUBLIC API
 // ─────────────────────────────────────────
 
-export function setJWT(jwt) { _jwt = jwt; }
-
 /**
  * Enqueues an order job via BullMQ, or falls back to direct execution.
  * Returns true if order was successfully placed/enqueued, false otherwise.
  * IMPORTANT: openPosition() should only be called in entryEngine AFTER this returns true.
  */
-export async function addOrderJob(signalObj, jwt) {
-    if (jwt) _jwt = jwt;
+export async function addOrderJob(signalObj) {
     await ensureQueue();
 
     if (queueReady && orderQueue) {
@@ -121,12 +116,12 @@ export async function addOrderJob(signalObj, jwt) {
         } catch (err) {
             logger.warn(`⚠ OrderQueue add failed: ${err.message} — falling back to direct execution`);
             queueReady = false;
-            const result = await executeOrder(jwt ?? _jwt, signalObj);
+            const result = await executeOrder(signalObj);
             return !!(result?.orderNo);
         }
     } else {
         // Fallback: direct execution
-        const result = await executeOrder(jwt ?? _jwt, signalObj);
+        const result = await executeOrder(signalObj);
         return !!(result?.orderNo);
     }
 }
